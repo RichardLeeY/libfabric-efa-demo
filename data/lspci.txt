@@ -1,0 +1,185 @@
+-+-[0000:cc]---00.0-[cd-d2]----00.0-[ce-d2]--+-00.0-[cf]----00.0  NVIDIA Corporation GH100 [H100 NVSwitch]
+ |                                           +-00.1-[d0]----00.0  NVIDIA Corporation GH100 [H100 NVSwitch]
+ |                                           +-00.2-[d1]----00.0  NVIDIA Corporation GH100 [H100 NVSwitch]
+ |                                           \-00.3-[d2]----00.0  NVIDIA Corporation GH100 [H100 NVSwitch]
+ +-[0000:bb]---00.0-[bc-cb]----00.0-[bd-cb]--+-00.0-[be]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.1-[bf]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.2-[c0]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.3-[c1]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.4-[c2]--
+ |                                           +-00.5-[c3]--
+ |                                           +-00.6-[c4]--
+ |                                           +-00.7-[c5]--
+ |                                           +-01.0-[c6]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.1-[c7]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.2-[c8]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.3-[c9]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.4-[ca]----00.0  NVIDIA Corporation GH100 [H100 SXM5 80GB]
+ |                                           \-01.5-[cb]----00.0  Amazon.com, Inc. NVMe SSD Controller
+ +-[0000:aa]---00.0-[ab-ba]----00.0-[ac-ba]--+-00.0-[ad]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.1-[ae]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.2-[af]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.3-[b0]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.4-[b1]--
+ |                                           +-00.5-[b2]--
+ |                                           +-00.6-[b3]--
+ |                                           +-00.7-[b4]--
+ |                                           +-01.0-[b5]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.1-[b6]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.2-[b7]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.3-[b8]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.4-[b9]----00.0  NVIDIA Corporation GH100 [H100 SXM5 80GB]
+ |                                           \-01.5-[ba]----00.0  Amazon.com, Inc. NVMe SSD Controller
+ +-[0000:99]---00.0-[9a-a9]----00.0-[9b-a9]--+-00.0-[9c]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.1-[9d]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.2-[9e]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.3-[9f]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.4-[a0]--
+ |                                           +-00.5-[a1]--
+ |                                           +-00.6-[a2]--
+ |                                           +-00.7-[a3]--
+ |                                           +-01.0-[a4]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.1-[a5]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.2-[a6]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.3-[a7]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.4-[a8]----00.0  NVIDIA Corporation GH100 [H100 SXM5 80GB]
+ |                                           \-01.5-[a9]----00.0  Amazon.com, Inc. NVMe SSD Controller
+ +-[0000:88]---00.0-[89-98]----00.0-[8a-98]--+-00.0-[8b]--
+ |                                           +-00.1-[8c]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.2-[8d]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.3-[8e]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.4-[8f]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.5-[90]--
+ |                                           +-00.6-[91]--
+ |                                           +-00.7-[92]--
+ |                                           +-01.0-[93]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.1-[94]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.2-[95]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.3-[96]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.4-[97]----00.0  NVIDIA Corporation GH100 [H100 SXM5 80GB]
+ |                                           \-01.5-[98]----00.0  Amazon.com, Inc. NVMe SSD Controller
+ +-[0000:77]---00.0-[78-87]----00.0-[79-87]--+-00.0-[7a]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.1-[7b]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.2-[7c]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.3-[7d]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.4-[7e]--
+ |                                           +-00.5-[7f]--
+ |                                           +-00.6-[80]--
+ |                                           +-00.7-[81]--
+ |                                           +-01.0-[82]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.1-[83]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.2-[84]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.3-[85]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.4-[86]----00.0  NVIDIA Corporation GH100 [H100 SXM5 80GB]
+ |                                           \-01.5-[87]----00.0  Amazon.com, Inc. NVMe SSD Controller
+ +-[0000:66]---00.0-[67-76]----00.0-[68-76]--+-00.0-[69]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.1-[6a]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.2-[6b]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.3-[6c]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.4-[6d]--
+ |                                           +-00.5-[6e]--
+ |                                           +-00.6-[6f]--
+ |                                           +-00.7-[70]--
+ |                                           +-01.0-[71]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.1-[72]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.2-[73]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.3-[74]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.4-[75]----00.0  NVIDIA Corporation GH100 [H100 SXM5 80GB]
+ |                                           \-01.5-[76]----00.0  Amazon.com, Inc. NVMe SSD Controller
+ +-[0000:55]---00.0-[56-65]----00.0-[57-65]--+-00.0-[58]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.1-[59]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.2-[5a]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.3-[5b]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.4-[5c]--
+ |                                           +-00.5-[5d]--
+ |                                           +-00.6-[5e]--
+ |                                           +-00.7-[5f]--
+ |                                           +-01.0-[60]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.1-[61]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.2-[62]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.3-[63]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.4-[64]----00.0  NVIDIA Corporation GH100 [H100 SXM5 80GB]
+ |                                           \-01.5-[65]----00.0  Amazon.com, Inc. NVMe SSD Controller
+ +-[0000:44]---00.0-[45-54]----00.0-[46-54]--+-00.0-[47]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.1-[48]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.2-[49]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.3-[4a]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.4-[4b]----00.0  Amazon.com, Inc. Elastic Network Adapter (ENA)
+ |                                           +-00.5-[4c]--
+ |                                           +-00.6-[4d]--
+ |                                           +-00.7-[4e]--
+ |                                           +-01.0-[4f]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.1-[50]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.2-[51]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.3-[52]----00.0  Amazon.com, Inc. Elastic Fabric Adapter (EFA)
+ |                                           +-01.4-[53]----00.0  NVIDIA Corporation GH100 [H100 SXM5 80GB]
+ |                                           \-01.5-[54]----00.0  Amazon.com, Inc. NVMe SSD Controller
+ +-[0000:01]---00.0-[02-43]----00.0-[03-43]--+-00.0-[04]--
+ |                                           +-00.1-[05]--
+ |                                           +-00.2-[06]--
+ |                                           +-00.3-[07]--
+ |                                           +-00.4-[08]--
+ |                                           +-00.5-[09]--
+ |                                           +-00.6-[0a]--
+ |                                           +-00.7-[0b]--
+ |                                           +-01.0-[0c]--
+ |                                           +-01.1-[0d]--
+ |                                           +-01.2-[0e]--
+ |                                           +-01.3-[0f]--
+ |                                           +-01.4-[10]--
+ |                                           +-01.5-[11]--
+ |                                           +-01.6-[12]--
+ |                                           +-01.7-[13]--
+ |                                           +-02.0-[14]--
+ |                                           +-02.1-[15]--
+ |                                           +-02.2-[16]--
+ |                                           +-02.3-[17]--
+ |                                           +-02.4-[18]--
+ |                                           +-02.5-[19]--
+ |                                           +-02.6-[1a]--
+ |                                           +-02.7-[1b]--
+ |                                           +-03.0-[1c]--
+ |                                           +-03.1-[1d]--
+ |                                           +-03.2-[1e]--
+ |                                           +-03.3-[1f]--
+ |                                           +-03.4-[20]--
+ |                                           +-03.5-[21]--
+ |                                           +-03.6-[22]--
+ |                                           +-03.7-[23]--
+ |                                           +-04.0-[24]--
+ |                                           +-04.1-[25]--
+ |                                           +-04.2-[26]--
+ |                                           +-04.3-[27]--
+ |                                           +-04.4-[28]--
+ |                                           +-04.5-[29]--
+ |                                           +-04.6-[2a]--
+ |                                           +-04.7-[2b]--
+ |                                           +-05.0-[2c]--
+ |                                           +-05.1-[2d]--
+ |                                           +-05.2-[2e]--
+ |                                           +-05.3-[2f]--
+ |                                           +-05.4-[30]--
+ |                                           +-05.5-[31]--
+ |                                           +-05.6-[32]--
+ |                                           +-05.7-[33]--
+ |                                           +-06.0-[34]--
+ |                                           +-06.1-[35]--
+ |                                           +-06.2-[36]--
+ |                                           +-06.3-[37]--
+ |                                           +-06.4-[38]--
+ |                                           +-06.5-[39]--
+ |                                           +-06.6-[3a]--
+ |                                           +-06.7-[3b]--
+ |                                           +-07.0-[3c]--
+ |                                           +-07.1-[3d]--
+ |                                           +-07.2-[3e]--
+ |                                           +-07.3-[3f]--
+ |                                           +-07.4-[40]--
+ |                                           +-07.5-[41]--
+ |                                           +-07.6-[42]--
+ |                                           \-07.7-[43]--
+ \-[0000:00]-+-00.0  Intel Corporation 440FX - 82441FX PMC [Natoma]
+             +-01.0  Intel Corporation 82371SB PIIX3 ISA [Natoma/Triton II]
+             +-01.3  Intel Corporation 82371AB/EB/MB PIIX4 ACPI
+             +-03.0  Amazon.com, Inc. Device 1111
+             \-04.0  Amazon.com, Inc. NVMe EBS Controller
