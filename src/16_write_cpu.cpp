@@ -666,7 +666,7 @@ struct RandomFillRequestState {
       printf(".");
       fflush(stdout);
     }
-    printf("\n");
+    printf("Random Data Generated\n");
 
     // RDMA WRITE the data to remote CPU memory.
     //
