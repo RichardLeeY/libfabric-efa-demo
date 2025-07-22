@@ -79,6 +79,25 @@ constexpr size_t kCompletionQueueReadCount = 16;
 constexpr size_t kMemoryRegionSize = 16 << 20;
 constexpr size_t kEfaImmDataSize = 4;
 
+// EFA page size optimization to avoid scatter-gather issues
+size_t OptimizePageSizeForEFA(size_t requested_size) {
+  // Known problematic: exact 1MB (1048576) causes "Remote scatter-gather list too short"
+  // Known working: 1047552 (1MB - 1024)
+  if (requested_size == 1048576) {
+    printf("INFO: Converting exact 1MB page size to 1047552 to avoid EFA scatter-gather issues\n");
+    return 1047552;
+  }
+  
+  // For other power-of-2 sizes >= 512KB, subtract small amount to avoid EFA issues
+  if (requested_size >= 524288 && (requested_size & (requested_size - 1)) == 0) {
+    size_t adjusted = requested_size - 1024;
+    printf("INFO: Adjusting power-of-2 page size from %zu to %zu to avoid EFA issues\n", requested_size, adjusted);
+    return adjusted;
+  }
+  
+  return requested_size;
+}
+
 struct Buffer;
 struct Network;
 
@@ -616,12 +635,14 @@ std::vector<uint8_t> RandomBytes(uint64_t seed, size_t size) {
   return buf;
 }
 struct RandomFillRequestState {
-  Buffer *cpu_buf;
+  Buffer *cpu_buf1;
+  Buffer *cpu_buf2;
   fi_addr_t client_addr = FI_ADDR_UNSPEC;
   bool done = false;
   AppConnectMessage *connect_msg = nullptr;
 
-  explicit RandomFillRequestState(Buffer *cpu_buf) : cpu_buf(cpu_buf) {}
+  explicit RandomFillRequestState(Buffer *cpu_buf1, Buffer *cpu_buf2) 
+    : cpu_buf1(cpu_buf1), cpu_buf2(cpu_buf2) {}
 
   void HandleConnect(Network &net, RdmaOp &op) {
     auto *base_msg = (AppMessageBase *)op.recv.buf->data;
@@ -660,20 +681,55 @@ struct RandomFillRequestState {
 
     // Generate random data and copy to local CPU memory
     printf("Generating random data");
-    for (size_t i = 0; i < connect_msg->num_mr; ++i) {
-      auto bytes = RandomBytes(msg.seed + i, msg.page_size * msg.num_pages);
-      memcpy((uint8_t *)cpu_buf->data + i * bytes.size(), bytes.data(), bytes.size());
-      printf(".");
-      fflush(stdout);
-    }
+    auto bytes1 = RandomBytes(msg.seed, msg.page_size * msg.num_pages);
+    memcpy(cpu_buf1->data, bytes1.data(), bytes1.size());
+    printf(".");
+    fflush(stdout);
+    
+    auto bytes2 = RandomBytes(msg.seed + 1, msg.page_size * msg.num_pages);
+    memcpy(cpu_buf2->data, bytes2.data(), bytes2.size());
+    printf(".");
+    fflush(stdout);
     printf("Random Data Generated\n");
 
     // RDMA WRITE the data to remote CPU memory.
     //
     // NOTE(lequn): iov_limit==4, rma_iov_limit==1.
     // So need multiple WRITE instead of a vectorized WRITE.
+    
+    // DEBUG: Print all page indices first
+    printf("DEBUG: Page indices for %zu pages:\n", msg.num_pages);
+    for (size_t j = 0; j < msg.num_pages; j++) {
+      printf("  page_idx[%zu] = %u\n", j, msg.page_idx(j));
+    }
+    printf("DEBUG: MR info:\n");
     for (size_t i = 0; i < connect_msg->num_mr; ++i) {
+      printf("  MR[%zu]: addr=0x%012lx size=%lu (max_page_idx=%lu)\n", 
+             i, connect_msg->mr(i).addr, connect_msg->mr(i).size,
+             (connect_msg->mr(i).size / msg.page_size) - 1);
+    }
+    
+    for (size_t i = 0; i < connect_msg->num_mr; ++i) {
+      Buffer *local_buf = (i == 0) ? cpu_buf1 : cpu_buf2;
+      printf("DEBUG: Processing MR[%zu] with %s\n", i, (i == 0) ? "cpu_buf1" : "cpu_buf2");
+      
       for (size_t j = 0; j < msg.num_pages; j++) {
+        uint32_t page_idx = msg.page_idx(j);
+        uint64_t remote_offset = page_idx * msg.page_size;
+        uint64_t dest_addr = connect_msg->mr(i).addr + remote_offset;
+        
+        // DEBUG: Check boundaries
+        printf("DEBUG: MR[%zu] Write[%zu]: page_idx=%u, remote_offset=%lu, dest_addr=0x%lx\n",
+               i, j, page_idx, remote_offset, dest_addr);
+        
+        if (remote_offset + msg.page_size > connect_msg->mr(i).size) {
+          printf("ERROR: Write would exceed MR[%zu] boundary!\n", i);
+          printf("  remote_offset(%lu) + page_size(%zu) = %lu > mr_size(%lu)\n",
+                 remote_offset, msg.page_size, remote_offset + msg.page_size, 
+                 connect_msg->mr(i).size);
+          std::exit(1);
+        }
+        
         uint32_t imm_data = 0;
         std::function<void(Network &, RdmaOp &)> callback;
         if (i + 1 == connect_msg->num_mr && j + 1 == msg.num_pages) {
@@ -689,13 +745,16 @@ struct RandomFillRequestState {
           // Don't send immediate data. Don't wake up the remote side.
           // Also skip local callback.
         }
+        
+        printf("DEBUG: Posting RDMA write: local_offset=%zu, remote_addr=0x%lx, len=%zu\n",
+               j * msg.page_size, dest_addr, msg.page_size);
+               
         net.PostWrite(
-            {.buf = cpu_buf,
-             .offset = i * (msg.page_size * msg.num_pages) + j * msg.page_size,
+            {.buf = local_buf,
+             .offset = j * msg.page_size,
              .len = msg.page_size,
              .imm_data = imm_data,
-             .dest_ptr =
-                 connect_msg->mr(i).addr + msg.page_idx(j) * msg.page_size,
+             .dest_ptr = dest_addr,
              .dest_addr = client_addr,
              .dest_key = connect_msg->mr(i).rkey},
             std::move(callback));
@@ -731,15 +790,17 @@ int ServerMain(int argc, char **argv) {
   net.RegisterMemory(buf2);
 
   // Allocate and register CPU memory
-  auto cpu_buf = Buffer::Alloc(kMemoryRegionSize * 2, kBufAlign);
-  net.RegisterMemory(cpu_buf);
-  printf("Registered 1 buffer in CPU memory\n");
+  auto cpu_buf1 = Buffer::Alloc(kMemoryRegionSize, kBufAlign);
+  net.RegisterMemory(cpu_buf1);
+  auto cpu_buf2 = Buffer::Alloc(kMemoryRegionSize, kBufAlign);
+  net.RegisterMemory(cpu_buf2);
+  printf("Registered 2 buffers in CPU memory\n");
 
   // Loop forever. Accept one client at a time.
   for (;;) {
     printf("------\n");
     // State machine
-    RandomFillRequestState s(&cpu_buf);
+    RandomFillRequestState s(&cpu_buf1, &cpu_buf2);
     // RECV for CONNECT
     net.PostRecv(buf1, [&s](Network &net, RdmaOp &op) { s.OnRecv(net, op); });
     // RECV for RandomFillRequest
@@ -765,6 +826,15 @@ int ClientMain(int argc, char **argv) {
     page_size = 1 << 20;
     num_pages = 8;
   }
+  
+  // Apply EFA optimization to avoid scatter-gather issues
+  size_t original_page_size = page_size;
+  page_size = OptimizePageSizeForEFA(page_size);
+  if (page_size != original_page_size) {
+    printf("DEBUG: Page size optimized from %zu to %zu for EFA compatibility\n", 
+           original_page_size, page_size);
+  }
+  
   size_t max_pages = kMemoryRegionSize / page_size;
   CHECK(page_size * num_pages <= kMemoryRegionSize);
 
@@ -798,6 +868,18 @@ int ClientMain(int argc, char **argv) {
   std::iota(tmp.begin(), tmp.end(), 0);
   std::sample(tmp.begin(), tmp.end(), std::back_inserter(page_idx), num_pages,
               rng);
+
+  // DEBUG: Print client-side configuration
+  printf("DEBUG CLIENT: Configuration:\n");
+  printf("  page_size: %zu (%zuMB)\n", page_size, page_size / (1024*1024));
+  printf("  num_pages: %zu\n", num_pages);
+  printf("  max_pages: %zu\n", max_pages);
+  printf("  kMemoryRegionSize: %zu (%zuMB)\n", kMemoryRegionSize, kMemoryRegionSize / (1024*1024));
+  printf("DEBUG CLIENT: Generated page indices:\n");
+  for (size_t i = 0; i < page_idx.size(); i++) {
+    printf("  page_idx[%zu] = %u (offset = %u * %zu = %zu)\n", 
+           i, page_idx[i], page_idx[i], page_size, page_idx[i] * page_size);
+  }
 
   // Send address and MR to server
   auto &connect_msg = *(AppConnectMessage *)buf1.data;
