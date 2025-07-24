@@ -73,30 +73,11 @@ Data is correct
     }                                                                          \
   } while (0)
 
-constexpr size_t kBufAlign = 128; // EFA alignment requirement
+
 constexpr size_t kMessageBufferSize = 8192;
 constexpr size_t kCompletionQueueReadCount = 16;
 constexpr size_t kMemoryRegionSize = 16 << 20;
 constexpr size_t kEfaImmDataSize = 4;
-
-// EFA page size optimization to avoid scatter-gather issues
-size_t OptimizePageSizeForEFA(size_t requested_size) {
-  // Known problematic: exact 1MB (1048576) causes "Remote scatter-gather list too short"
-  // Known working: 1047552 (1MB - 1024)
-  if (requested_size == 1048576) {
-    printf("INFO: Converting exact 1MB page size to 1047552 to avoid EFA scatter-gather issues\n");
-    return 1047552;
-  }
-  
-  // For other power-of-2 sizes >= 512KB, subtract small amount to avoid EFA issues
-  if (requested_size >= 524288 && (requested_size & (requested_size - 1)) == 0) {
-    size_t adjusted = requested_size - 1024;
-    printf("INFO: Adjusting power-of-2 page size from %zu to %zu to avoid EFA issues\n", requested_size, adjusted);
-    return adjusted;
-  }
-  
-  return requested_size;
-}
 
 struct Buffer;
 struct Network;
@@ -239,42 +220,29 @@ private:
       : fi(fi), fabric(fabric), domain(domain), cq(cq), av(av), ep(ep),
         addr(addr) {}
 };
-void *align_up(void *ptr, size_t align) {
-  uintptr_t addr = (uintptr_t)ptr;
-  return (void *)((addr + align - 1) & ~(align - 1));
-}
-
 struct Buffer {
   void *data;
   size_t size;
 
-  static Buffer Alloc(size_t size, size_t align) {
-    void *raw_data = malloc(size + align);
-    CHECK(raw_data != nullptr);
-    return Buffer(raw_data, size, align);
+  static Buffer Alloc(size_t size) {
+    void *data = malloc(size);
+    CHECK(data != nullptr);
+    return Buffer(data, size);
   }
 
-  Buffer(Buffer &&other)
-      : data(other.data), size(other.size), raw_data(other.raw_data) {
+  Buffer(Buffer &&other) : data(other.data), size(other.size) {
     other.data = nullptr;
-    other.raw_data = nullptr;
     other.size = 0;
   }
 
   ~Buffer() {
-    if (raw_data) {
-      free(raw_data);
+    if (data) {
+      free(data);
     }
   }
 
 private:
-  void *raw_data;
-
-  Buffer(void *raw_data, size_t raw_size, size_t align) {
-    this->raw_data = raw_data;
-    this->data = align_up(raw_data, align);
-    this->size = (size_t)((uintptr_t)raw_data + raw_size - (uintptr_t)data);
-  }
+  Buffer(void *data, size_t size) : data(data), size(size) {}
   Buffer(const Buffer &) = delete;
 };
 
@@ -784,15 +752,15 @@ int ServerMain(int argc, char **argv) {
          net.addr.ToString().c_str());
 
   // Allocate and register message buffer
-  auto buf1 = Buffer::Alloc(kMessageBufferSize, kBufAlign);
+  auto buf1 = Buffer::Alloc(kMessageBufferSize);
   net.RegisterMemory(buf1);
-  auto buf2 = Buffer::Alloc(kMessageBufferSize, kBufAlign);
+  auto buf2 = Buffer::Alloc(kMessageBufferSize);
   net.RegisterMemory(buf2);
 
   // Allocate and register CPU memory
-  auto cpu_buf1 = Buffer::Alloc(kMemoryRegionSize, kBufAlign);
+  auto cpu_buf1 = Buffer::Alloc(kMemoryRegionSize);
   net.RegisterMemory(cpu_buf1);
-  auto cpu_buf2 = Buffer::Alloc(kMemoryRegionSize, kBufAlign);
+  auto cpu_buf2 = Buffer::Alloc(kMemoryRegionSize);
   net.RegisterMemory(cpu_buf2);
   printf("Registered 2 buffers in CPU memory\n");
 
@@ -826,15 +794,6 @@ int ClientMain(int argc, char **argv) {
     page_size = 1 << 20;
     num_pages = 8;
   }
-  
-  // Apply EFA optimization to avoid scatter-gather issues
-  size_t original_page_size = page_size;
-  page_size = OptimizePageSizeForEFA(page_size);
-  if (page_size != original_page_size) {
-    printf("DEBUG: Page size optimized from %zu to %zu for EFA compatibility\n", 
-           original_page_size, page_size);
-  }
-  
   size_t max_pages = kMemoryRegionSize / page_size;
   CHECK(page_size * num_pages <= kMemoryRegionSize);
 
@@ -850,13 +809,13 @@ int ClientMain(int argc, char **argv) {
   auto server_addr = net.AddPeerAddress(server_addrname);
 
   // Allocate and register message buffer
-  auto buf1 = Buffer::Alloc(kMessageBufferSize, kBufAlign);
+  auto buf1 = Buffer::Alloc(kMessageBufferSize);
   net.RegisterMemory(buf1);
 
   // Allocate and register CPU memory
-  auto cpu_buf1 = Buffer::Alloc(kMemoryRegionSize, kBufAlign);
+  auto cpu_buf1 = Buffer::Alloc(kMemoryRegionSize);
   net.RegisterMemory(cpu_buf1);
-  auto cpu_buf2 = Buffer::Alloc(kMemoryRegionSize, kBufAlign);
+  auto cpu_buf2 = Buffer::Alloc(kMemoryRegionSize);
   net.RegisterMemory(cpu_buf2);
   printf("Registered 2 buffers in CPU memory\n");
 
