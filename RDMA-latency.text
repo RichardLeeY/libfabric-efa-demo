@@ -1,0 +1,97 @@
+
+
+
+## 10 messages in 10 seconds
+end thread completed - sent 10 messages
+[CLIENT 07:37:15.641] Received response #10 - Internal delay: 0.528 μs, RTT: 96.507 μs
+Push message thread completed - pushed 10 messages
+
+--- Statistics ---
+Total messages received: 10 out of 10
+Internal Delay Time Statistics:
+  Min: 0.395 μs
+  Max: 25.465 μs
+  P25: 0.412 μs
+  P50: 0.503 μs
+  P75: 0.528 μs
+  P90: 25.465 μs
+  P99: 25.465 μs
+Round Trip Time (RTT) Statistics:
+  Min: 89.578 μs
+  Max: 83162.791 μs
+  P25: 96.250 μs
+  P50: 2446.125 μs
+  P75: 2460.308 μs
+  P90: 83162.791 μs
+  P99: 83162.791 μs
+
+--- High Latency Messages (>10ms) ---
+Message #1:
+  RTT: 83162.791 μs
+  Internal Delay: 25.465 μs
+[DEBUG] Client Initialization completed in 11034910.859 μs
+
+
+
+## 1000 messages in 100 seconds
+
+end thread completed - sent 1000 messages
+[CLIENT 06:57:28.752] Received response #1000 - Internal delay: 0.547 μs, RTT: 79.277 μs
+Push message thread completed - pushed 1000 messages
+
+--- Statistics ---
+Total messages received: 1000 out of 1000
+Internal Delay Time Statistics:
+  Min: 0.359 μs
+  Max: 2600.524 μs
+  P25: 0.516 μs
+  P50: 0.522 μs
+  P75: 0.533 μs
+  P90: 0.546 μs
+  P99: 0.621 μs
+Round Trip Time (RTT) Statistics:
+  Min: 75.014 μs
+  Max: 78757.368 μs
+  P25: 84.203 μs
+  P50: 88.377 μs
+  P75: 93.256 μs
+  P90: 98.776 μs
+  P99: 116.586 μs
+
+--- High Latency Messages (>10ms) ---
+Message #1:
+  RTT: 78757.368 μs
+  Internal Delay: 2600.524 μs
+[DEBUG] Client Initialization completed in 101026213.322 μs
+
+
+## 10000 messages over 10 seconds
+[DEBUG] Starting First Send Operation...
+[DEBUG] First Send Operation - Message preparation: 8.138 μs
+[DEBUG] First Send Operation - fi_sendmsg call: 39827.6 μs
+[DEBUG] First Send Operation completed in 39850.7 μs
+[DEBUG] Starting First Client Receive Operation...
+[DEBUG] First Client Receive Operation - Message parsing: 10.962 μs
+[DEBUG] First Client Receive Operation - Statistics and buffer reposting: 20.267 μs
+[DEBUG] First Client Receive Operation completed in 22.128 μs
+Send thread completed - sent 10000 messages
+Push message thread completed - pushed 10000 messages
+
+--- Statistics ---
+Total messages received: 10000 out of 10000
+Internal Delay Time Statistics:
+  Min: 0.183 μs
+  Max: 41420.894 μs
+  P25: 0.334 μs
+  P50: 0.345 μs
+  P75: 0.357 μs
+  P90: 0.368 μs
+  P99: 0.444 μs
+Round Trip Time (RTT) Statistics:
+  Min: 35.380 μs
+  Max: 77358.805 μs
+  P25: 42.239 μs
+  P50: 44.303 μs
+  P75: 49.374 μs
+  P90: 53.766 μs
+  P99: 71.362 μs

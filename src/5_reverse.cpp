@@ -49,7 +49,7 @@ Received message (len=8): txetyna
 #include <time.h>
 #include <unistd.h>
 #include <vector>
-
+#include <unordered_map>
 #define CHECK(stmt)                                                            \
   do {                                                                         \
     if (!(stmt)) {                                                             \
@@ -79,6 +79,14 @@ struct EfaAddress {
   uint8_t bytes[32];
 
   explicit EfaAddress(uint8_t bytes[32]) { memcpy(this->bytes, bytes, 32); }
+  EfaAddress(const std::string &str) {
+    if (str.size() != 64) {
+      fprintf(stderr, "Unexpected address length %zu\n", str.size());
+      std::exit(1);
+    }
+    for (size_t i = 0; i < 32; i++) {
+      sscanf(str.c_str() + 2 * i, "%02hhx", &bytes[i]);
+    }
 
   std::string ToString() const {
     char buf[65];

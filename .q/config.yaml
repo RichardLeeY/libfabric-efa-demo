@@ -1,0 +1,42 @@
+# Q CLI Configuration for RDMA Development
+version: "1.0"
+
+# Default agent for this project
+default_agent: "rdma-expert"
+
+# Project-specific settings
+project:
+  name: "libfabric-efa-demo"
+  type: "rdma-hpc"
+  
+# Common RDMA development patterns
+templates:
+  rdma_fix_blocking:
+    description: "Fix blocking issues in RDMA send operations"
+    code: |
+      // Handle -FI_EAGAIN in postSend
+      int ret;
+      do {
+          ret = fi_sendmsg(ep, &msg, 0);
+          if (ret == -FI_EAGAIN) {
+              pollSend();
+              std::this_thread::sleep_for(std::chrono::microseconds(1));
+          }
+      } while (ret == -FI_EAGAIN);
+      
+  efa_env_setup:
+    description: "Optimal EFA environment variables"
+    code: |
+      export FI_EFA_USE_DEVICE_RDMA=1
+      export FI_EFA_TX_SIZE=1024
+      export FI_EFA_RX_SIZE=1024
+      export FI_PROVIDER=efa
+
+# Quick diagnostics
+diagnostics:
+  - name: "EFA Status"
+    command: "fi_info -p efa | head -20"
+  - name: "Build Status" 
+    command: "make -n 2>&1 | head -10"
+  - name: "Code Issues"
+    command: "grep -rn 'fi_sendmsg.*return false' src/ || echo 'No obvious blocking issues'"

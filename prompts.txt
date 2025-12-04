@@ -1,0 +1,65 @@
+## 1
+with the "std::vector<std::pair<std::string, std::string>> configs_to_try = {
+            {"efa", "efa"}          // EFA provider with regular efa fabric
+        };" the "rdma_send_recv" works well , you can see from the ./server-efa.log and ./client-efa.log . if change to "{"efa","efa-direct"}", the rdma_se
+nd_recv blocked , you can see from the ./server.log and ./client.log . you can draw a text diagram for the data traffic and help me explain what's wrong wi
+th efa-direct mode?
+
+
+
+## possible root calculate_statisticsNow I can see the issue! Let me create a text diagram and explain the problem:
+
+## Text Diagram: EFA vs EFA-Direct Data Flow
+
+EFA Mode (Working):
+┌─────────┐                    ┌─────────┐
+│ Client  │                    │ Server  │
+│         │                    │         │
+│ Send EP │◄──────────────────►│ Recv EP │
+│   AV    │    Bidirectional   │   AV    │
+│         │    ACK Protocol    │         │
+└─────────┘                    └─────────┘
+     │                              │
+     ▼                              ▼
+┌─────────┐                    ┌─────────┐
+│Send CQ  │                    │Recv CQ  │
+│Completions│                  │Events   │
+│Generated │                   │Generated│
+└─────────┘                    └─────────┘
+
+EFA-Direct Mode (Blocked):
+┌─────────┐                    ┌─────────┐
+│ Client  │                    │ Server  │
+│         │                    │         │
+│ Send EP │──────────────────X │ Recv EP │
+│   AV    │   Missing Return   │   AV    │
+│ (has    │   ACK Path        │ (missing│
+│ server) │                   │ client) │
+└─────────┘                    └─────────┘
+     │                              │
+     ▼                              ▼
+┌─────────┐                    ┌─────────┐
+│Send CQ  │                    │Recv CQ  │
+│ BLOCKED │                    │ Events? │
+│Waiting  │                    │         │
+│for ACK  │                    │         │
+└─────────┘                    └─────────┘
+
+
+## The Problem Explained
+
+Your analysis is correct. The issue is with the asymmetric address vector setup in EFA-direct mode:
+
+Current Implementation:
+• Only the sender calls addPeerAddress() to insert the receiver's address into its AV
+• The receiver never inserts the sender's address into its AV
+
+Why this works in regular EFA mode:
+• EFA provider handles bidirectional communication through wire protocols
+• ACKs can be sent back even without explicit AV setup on receiver side
+
+Why this fails in EFA-direct mode:
+• EFA-direct bypasses wire protocols for performance
+• **Delivery-complete semantics** require hardware-level ACKs
+• Receiver cannot send ACKs back to sender without sender's address in its AV
+• Send completions hang indefinitely waiting for ACKs that never arrive

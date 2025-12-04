@@ -33,6 +33,7 @@ Data is correct
 // clang-format on
 
 #include <algorithm>
+#include <atomic>
 #include <functional>
 #include <inttypes.h>
 #include <memory>
@@ -73,7 +74,7 @@ Data is correct
     }                                                                          \
   } while (0)
 
-constexpr size_t kBufAlign = 128; // EFA alignment requirement
+
 constexpr size_t kMessageBufferSize = 8192;
 constexpr size_t kCompletionQueueReadCount = 16;
 constexpr size_t kMemoryRegionSize = 16 << 20;
@@ -137,6 +138,8 @@ struct RdmaWriteOp {
   uint64_t dest_ptr;
   fi_addr_t dest_addr;
   uint64_t dest_key;
+  uint64_t operation_id;  // Unique identifier for tracking
+  int retry_count;        // Number of retry attempts
 };
 static_assert(std::is_pod_v<RdmaWriteOp>);
 
@@ -168,6 +171,8 @@ struct Network {
 
   std::unordered_map<void *, struct fid_mr *> mr;
   std::unordered_map<uint32_t, RdmaOp *> remote_write_ops;
+  std::unordered_map<uint64_t, RdmaWriteOp> pending_writes;  // Track pending writes
+  std::atomic<uint64_t> next_op_id{1};  // Generate unique operation IDs
 
   static Network Open(struct fi_info *fi);
 
@@ -182,6 +187,8 @@ struct Network {
                 std::function<void(Network &, RdmaOp &)> &&callback);
   void PostWrite(RdmaWriteOp &&write,
                  std::function<void(Network &, RdmaOp &)> &&callback);
+  void PostWriteWithRetry(RdmaWriteOp &&write,
+                         std::function<void(Network &, RdmaOp &)> &&callback);
   void AddRemoteWrite(uint32_t id,
                       std::function<void(Network &, RdmaOp &)> &&callback);
 
@@ -220,42 +227,29 @@ private:
       : fi(fi), fabric(fabric), domain(domain), cq(cq), av(av), ep(ep),
         addr(addr) {}
 };
-void *align_up(void *ptr, size_t align) {
-  uintptr_t addr = (uintptr_t)ptr;
-  return (void *)((addr + align - 1) & ~(align - 1));
-}
-
 struct Buffer {
   void *data;
   size_t size;
 
-  static Buffer Alloc(size_t size, size_t align) {
-    void *raw_data = malloc(size + align);
-    CHECK(raw_data != nullptr);
-    return Buffer(raw_data, size, align);
+  static Buffer Alloc(size_t size) {
+    void *data = malloc(size);
+    CHECK(data != nullptr);
+    return Buffer(data, size);
   }
 
-  Buffer(Buffer &&other)
-      : data(other.data), size(other.size), raw_data(other.raw_data) {
+  Buffer(Buffer &&other) : data(other.data), size(other.size) {
     other.data = nullptr;
-    other.raw_data = nullptr;
     other.size = 0;
   }
 
   ~Buffer() {
-    if (raw_data) {
-      free(raw_data);
+    if (data) {
+      free(data);
     }
   }
 
 private:
-  void *raw_data;
-
-  Buffer(void *raw_data, size_t raw_size, size_t align) {
-    this->raw_data = raw_data;
-    this->data = align_up(raw_data, align);
-    this->size = (size_t)((uintptr_t)raw_data + raw_size - (uintptr_t)data);
-  }
+  Buffer(void *data, size_t size) : data(data), size(size) {}
   Buffer(const Buffer &) = delete;
 };
 
@@ -427,32 +421,41 @@ void Network::PostSend(fi_addr_t addr, Buffer &buf, size_t len,
 }
 void Network::PostWrite(RdmaWriteOp &&write,
                         std::function<void(Network &, RdmaOp &)> &&callback) {
+  // Assign unique operation ID if not already set
+  if (write.operation_id == 0) {
+    write.operation_id = next_op_id.fetch_add(1);
+    write.retry_count = 0;
+  }
+  
+  // Store the write operation for tracking
+  pending_writes[write.operation_id] = write;
+  
   auto *op = new RdmaOp{
       .type = RdmaOpType::kWrite,
       .write = std::move(write),
       .callback = std::move(callback),
   };
   struct iovec iov = {
-      .iov_base = (uint8_t *)write.buf->data + write.offset,
-      .iov_len = write.len,
+      .iov_base = (uint8_t *)op->write.buf->data + op->write.offset,
+      .iov_len = op->write.len,
   };
   struct fi_rma_iov rma_iov = {
-      .addr = write.dest_ptr,
-      .len = write.len,
-      .key = write.dest_key,
+      .addr = op->write.dest_ptr,
+      .len = op->write.len,
+      .key = op->write.dest_key,
   };
   struct fi_msg_rma msg = {
       .msg_iov = &iov,
-      .desc = &GetMR(*write.buf)->mem_desc,
+      .desc = &GetMR(*op->write.buf)->mem_desc,
       .iov_count = 1,
-      .addr = write.dest_addr,
+      .addr = op->write.dest_addr,
       .rma_iov = &rma_iov,
       .rma_iov_count = 1,
       .context = op,
-      .data = write.imm_data,
+      .data = op->write.imm_data,
   };
   uint64_t flags = 0;
-  if (write.imm_data) {
+  if (op->write.imm_data) {
     flags |= FI_REMOTE_CQ_DATA;
   }
   
@@ -466,6 +469,8 @@ void Network::PostWrite(RdmaWriteOp &&write,
     if (++retry_count > max_retries) {
       fprintf(stderr, "%s:%d fi_writemsg(ep, &msg, flags) failed with %d (%s) after %d retries\n", 
               __FILE__, __LINE__, ret, fi_strerror(-ret), retry_count);
+      pending_writes.erase(op->write.operation_id);
+      delete op;
       std::exit(1);
     }
     // Exponential backoff
@@ -477,8 +482,23 @@ void Network::PostWrite(RdmaWriteOp &&write,
   if (ret) {
     fprintf(stderr, "%s:%d fi_writemsg(ep, &msg, flags) failed with %d (%s)\n", 
             __FILE__, __LINE__, ret, fi_strerror(-ret));
+    pending_writes.erase(op->write.operation_id);
+    delete op;
     std::exit(1);
   }
+}
+
+void Network::PostWriteWithRetry(RdmaWriteOp &&write,
+                                std::function<void(Network &, RdmaOp &)> &&callback) {
+  const int MAX_RETRIES = 3;
+  
+  if (write.retry_count >= MAX_RETRIES) {
+    fprintf(stderr, "RDMA write operation %lu failed after %d retries\n", 
+            write.operation_id, MAX_RETRIES);
+    return;
+  }
+  
+  PostWrite(std::move(write), std::move(callback));
 }
 
 void Network::AddRemoteWrite(
@@ -490,6 +510,46 @@ void Network::AddRemoteWrite(
       .callback = std::move(callback),
   };
   remote_write_ops[id] = op;
+}
+
+void HandleWriteError(Network &net, RdmaOp &failed_op, 
+                     const struct fi_cq_err_entry &err_entry) {
+  auto &write_op = failed_op.write;
+  
+  printf("RDMA write error for operation %lu: %s (errno: %d)\n",
+         write_op.operation_id,
+         fi_cq_strerror(net.cq, err_entry.prov_errno, err_entry.err_data,
+                        nullptr, 0),
+         err_entry.err);
+  
+  // Check if this is a retryable error
+  if (err_entry.err == FI_EAGAIN || err_entry.err == FI_EBUSY || 
+      err_entry.err == FI_ENOBUFS) {
+    
+    write_op.retry_count++;
+    printf("Retrying RDMA write (attempt %d) for operation %lu\n", 
+           write_op.retry_count, write_op.operation_id);
+    
+    // Exponential backoff before retry
+    usleep(1000 * (1 << write_op.retry_count));
+    
+    // Retry the operation
+    net.PostWriteWithRetry(std::move(write_op), std::move(failed_op.callback));
+    return;
+  }
+  
+  // Non-retryable error - remove from pending operations
+  net.pending_writes.erase(write_op.operation_id);
+  
+  fprintf(stderr, "RDMA write failed permanently for operation %lu: %s\n",
+          write_op.operation_id,
+          fi_cq_strerror(net.cq, err_entry.prov_errno, err_entry.err_data,
+                         nullptr, 0));
+  
+  // Call error callback if available
+  if (failed_op.callback) {
+    failed_op.callback(net, failed_op);
+  }
 }
 
 void HandleCompletion(Network &net, const struct fi_cq_data_entry &cqe) {
@@ -515,7 +575,9 @@ void HandleCompletion(Network &net, const struct fi_cq_data_entry &cqe) {
     } else if (cqe.flags & FI_SEND) {
       // Nothing special
     } else if (cqe.flags & FI_WRITE) {
-      // Nothing special
+      // Remove from pending operations on successful completion
+      net.pending_writes.erase(op->write.operation_id);
+      printf("RDMA write operation %lu completed successfully\n", op->write.operation_id);
     } else {
       fprintf(stderr, "Unhandled completion type. cqe.flags=%lx\n", cqe.flags);
       std::exit(1);
@@ -542,9 +604,17 @@ void Network::PollCompletion() {
                 fi_strerror(-ret));
         std::exit(1);
       } else if (ret > 0) {
-        fprintf(stderr, "Failed libfabric operation: %s\n",
-                fi_cq_strerror(cq, err_entry.prov_errno, err_entry.err_data,
-                               nullptr, 0));
+        // Handle the error - we can identify the failed operation
+        RdmaOp *failed_op = (RdmaOp *)err_entry.op_context;
+        if (failed_op && failed_op->type == RdmaOpType::kWrite) {
+          HandleWriteError(*this, *failed_op, err_entry);
+          delete failed_op;  // Clean up the failed operation
+        } else {
+          // Handle other operation types
+          fprintf(stderr, "Failed libfabric operation: %s\n",
+                  fi_cq_strerror(cq, err_entry.prov_errno, err_entry.err_data,
+                                 nullptr, 0));
+        }
       } else {
         fprintf(stderr, "fi_cq_readerr returned 0 unexpectedly.\n");
         std::exit(1);
@@ -616,12 +686,14 @@ std::vector<uint8_t> RandomBytes(uint64_t seed, size_t size) {
   return buf;
 }
 struct RandomFillRequestState {
-  Buffer *cpu_buf;
+  Buffer *cpu_buf1;
+  Buffer *cpu_buf2;
   fi_addr_t client_addr = FI_ADDR_UNSPEC;
   bool done = false;
   AppConnectMessage *connect_msg = nullptr;
 
-  explicit RandomFillRequestState(Buffer *cpu_buf) : cpu_buf(cpu_buf) {}
+  explicit RandomFillRequestState(Buffer *cpu_buf1, Buffer *cpu_buf2) 
+    : cpu_buf1(cpu_buf1), cpu_buf2(cpu_buf2) {}
 
   void HandleConnect(Network &net, RdmaOp &op) {
     auto *base_msg = (AppMessageBase *)op.recv.buf->data;
@@ -660,20 +732,55 @@ struct RandomFillRequestState {
 
     // Generate random data and copy to local CPU memory
     printf("Generating random data");
-    for (size_t i = 0; i < connect_msg->num_mr; ++i) {
-      auto bytes = RandomBytes(msg.seed + i, msg.page_size * msg.num_pages);
-      memcpy((uint8_t *)cpu_buf->data + i * bytes.size(), bytes.data(), bytes.size());
-      printf(".");
-      fflush(stdout);
-    }
+    auto bytes1 = RandomBytes(msg.seed, msg.page_size * msg.num_pages);
+    memcpy(cpu_buf1->data, bytes1.data(), bytes1.size());
+    printf(".");
+    fflush(stdout);
+    
+    auto bytes2 = RandomBytes(msg.seed + 1, msg.page_size * msg.num_pages);
+    memcpy(cpu_buf2->data, bytes2.data(), bytes2.size());
+    printf(".");
+    fflush(stdout);
     printf("Random Data Generated\n");
 
     // RDMA WRITE the data to remote CPU memory.
     //
     // NOTE(lequn): iov_limit==4, rma_iov_limit==1.
     // So need multiple WRITE instead of a vectorized WRITE.
+    
+    // DEBUG: Print all page indices first
+    printf("DEBUG: Page indices for %zu pages:\n", msg.num_pages);
+    for (size_t j = 0; j < msg.num_pages; j++) {
+      printf("  page_idx[%zu] = %u\n", j, msg.page_idx(j));
+    }
+    printf("DEBUG: MR info:\n");
     for (size_t i = 0; i < connect_msg->num_mr; ++i) {
+      printf("  MR[%zu]: addr=0x%012lx size=%lu (max_page_idx=%lu)\n", 
+             i, connect_msg->mr(i).addr, connect_msg->mr(i).size,
+             (connect_msg->mr(i).size / msg.page_size) - 1);
+    }
+    
+    for (size_t i = 0; i < connect_msg->num_mr; ++i) {
+      Buffer *local_buf = (i == 0) ? cpu_buf1 : cpu_buf2;
+      printf("DEBUG: Processing MR[%zu] with %s\n", i, (i == 0) ? "cpu_buf1" : "cpu_buf2");
+      
       for (size_t j = 0; j < msg.num_pages; j++) {
+        uint32_t page_idx = msg.page_idx(j);
+        uint64_t remote_offset = page_idx * msg.page_size;
+        uint64_t dest_addr = connect_msg->mr(i).addr + remote_offset;
+        
+        // DEBUG: Check boundaries
+        printf("DEBUG: MR[%zu] Write[%zu]: page_idx=%u, remote_offset=%lu, dest_addr=0x%lx\n",
+               i, j, page_idx, remote_offset, dest_addr);
+        
+        if (remote_offset + msg.page_size > connect_msg->mr(i).size) {
+          printf("ERROR: Write would exceed MR[%zu] boundary!\n", i);
+          printf("  remote_offset(%lu) + page_size(%zu) = %lu > mr_size(%lu)\n",
+                 remote_offset, msg.page_size, remote_offset + msg.page_size, 
+                 connect_msg->mr(i).size);
+          std::exit(1);
+        }
+        
         uint32_t imm_data = 0;
         std::function<void(Network &, RdmaOp &)> callback;
         if (i + 1 == connect_msg->num_mr && j + 1 == msg.num_pages) {
@@ -689,15 +796,20 @@ struct RandomFillRequestState {
           // Don't send immediate data. Don't wake up the remote side.
           // Also skip local callback.
         }
+        
+        printf("DEBUG: Posting RDMA write: local_offset=%zu, remote_addr=0x%lx, len=%zu\n",
+               j * msg.page_size, dest_addr, msg.page_size);
+               
         net.PostWrite(
-            {.buf = cpu_buf,
-             .offset = i * (msg.page_size * msg.num_pages) + j * msg.page_size,
+            {.buf = local_buf,
+             .offset = j * msg.page_size,
              .len = msg.page_size,
              .imm_data = imm_data,
-             .dest_ptr =
-                 connect_msg->mr(i).addr + msg.page_idx(j) * msg.page_size,
+             .dest_ptr = dest_addr,
              .dest_addr = client_addr,
-             .dest_key = connect_msg->mr(i).rkey},
+             .dest_key = connect_msg->mr(i).rkey,
+             .operation_id = 0,  // Will be assigned automatically
+             .retry_count = 0},
             std::move(callback));
       }
     }
@@ -725,21 +837,23 @@ int ServerMain(int argc, char **argv) {
          net.addr.ToString().c_str());
 
   // Allocate and register message buffer
-  auto buf1 = Buffer::Alloc(kMessageBufferSize, kBufAlign);
+  auto buf1 = Buffer::Alloc(kMessageBufferSize);
   net.RegisterMemory(buf1);
-  auto buf2 = Buffer::Alloc(kMessageBufferSize, kBufAlign);
+  auto buf2 = Buffer::Alloc(kMessageBufferSize);
   net.RegisterMemory(buf2);
 
   // Allocate and register CPU memory
-  auto cpu_buf = Buffer::Alloc(kMemoryRegionSize * 2, kBufAlign);
-  net.RegisterMemory(cpu_buf);
-  printf("Registered 1 buffer in CPU memory\n");
+  auto cpu_buf1 = Buffer::Alloc(kMemoryRegionSize);
+  net.RegisterMemory(cpu_buf1);
+  auto cpu_buf2 = Buffer::Alloc(kMemoryRegionSize);
+  net.RegisterMemory(cpu_buf2);
+  printf("Registered 2 buffers in CPU memory\n");
 
   // Loop forever. Accept one client at a time.
   for (;;) {
     printf("------\n");
     // State machine
-    RandomFillRequestState s(&cpu_buf);
+    RandomFillRequestState s(&cpu_buf1, &cpu_buf2);
     // RECV for CONNECT
     net.PostRecv(buf1, [&s](Network &net, RdmaOp &op) { s.OnRecv(net, op); });
     // RECV for RandomFillRequest
@@ -780,13 +894,13 @@ int ClientMain(int argc, char **argv) {
   auto server_addr = net.AddPeerAddress(server_addrname);
 
   // Allocate and register message buffer
-  auto buf1 = Buffer::Alloc(kMessageBufferSize, kBufAlign);
+  auto buf1 = Buffer::Alloc(kMessageBufferSize);
   net.RegisterMemory(buf1);
 
   // Allocate and register CPU memory
-  auto cpu_buf1 = Buffer::Alloc(kMemoryRegionSize, kBufAlign);
+  auto cpu_buf1 = Buffer::Alloc(kMemoryRegionSize);
   net.RegisterMemory(cpu_buf1);
-  auto cpu_buf2 = Buffer::Alloc(kMemoryRegionSize, kBufAlign);
+  auto cpu_buf2 = Buffer::Alloc(kMemoryRegionSize);
   net.RegisterMemory(cpu_buf2);
   printf("Registered 2 buffers in CPU memory\n");
 
@@ -798,6 +912,18 @@ int ClientMain(int argc, char **argv) {
   std::iota(tmp.begin(), tmp.end(), 0);
   std::sample(tmp.begin(), tmp.end(), std::back_inserter(page_idx), num_pages,
               rng);
+
+  // DEBUG: Print client-side configuration
+  printf("DEBUG CLIENT: Configuration:\n");
+  printf("  page_size: %zu (%zuMB)\n", page_size, page_size / (1024*1024));
+  printf("  num_pages: %zu\n", num_pages);
+  printf("  max_pages: %zu\n", max_pages);
+  printf("  kMemoryRegionSize: %zu (%zuMB)\n", kMemoryRegionSize, kMemoryRegionSize / (1024*1024));
+  printf("DEBUG CLIENT: Generated page indices:\n");
+  for (size_t i = 0; i < page_idx.size(); i++) {
+    printf("  page_idx[%zu] = %u (offset = %u * %zu = %zu)\n", 
+           i, page_idx[i], page_idx[i], page_size, page_idx[i] * page_size);
+  }
 
   // Send address and MR to server
   auto &connect_msg = *(AppConnectMessage *)buf1.data;
