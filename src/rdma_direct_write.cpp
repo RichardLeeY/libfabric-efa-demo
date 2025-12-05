@@ -56,7 +56,13 @@ public:
     }
     T* get() const { return resource_; }
     void reset(T* resource) {
-        if (resource_) fi_close(&resource_->fid);
+        if (resource_) {
+            if constexpr (std::is_same_v<T, fi_info>) {
+                fi_freeinfo(resource_);
+            } else {
+                fi_close(&resource_->fid);
+            }
+        }
         resource_ = resource;
     }
     T* operator->() const { return resource_; }
@@ -96,7 +102,7 @@ public:
         hints->caps = FI_MSG | FI_RMA;
         
         struct fi_info *info;
-        if (auto ret = fi_getinfo(FI_VERSION(2, 0), nullptr, nullptr, 0, hints, &info); ret != 0) {
+        if (auto ret = fi_getinfo(FI_VERSION(2, 1), nullptr, nullptr, 0, hints, &info); ret != 0) {
             std::cout << "fi_getinfo failed: " << fi_strerror(-ret) << std::endl;
             fi_freeinfo(hints);
             return false;
@@ -142,7 +148,7 @@ public:
         }
         ep_.reset(ep);
         
-        if (auto ret = fi_ep_bind(ep, &cq_->fid, FI_SEND | FI_RECV | FI_WRITE | FI_READ | FI_REMOTE_WRITE | FI_REMOTE_READ); ret != 0) {
+        if (auto ret = fi_ep_bind(ep, &cq_->fid, FI_TRANSMIT | FI_RECV); ret != 0) {
             std::cout << "fi_ep_bind cq failed: " << fi_strerror(-ret) << std::endl;
             return false;
         }
@@ -211,9 +217,10 @@ public:
             .len = len,
             .key = remote_key_
         };
+        void* desc = fi_mr_desc(mr_.get());
         struct fi_msg_rma msg = {
             .msg_iov = &iov,
-            .desc = &mr_->mem_desc,
+            .desc = &desc,
             .iov_count = 1,
             .addr = dest_addr,
             .rma_iov = &rma_iov,
@@ -315,7 +322,7 @@ int serverMain(int argc, char *argv[]) {
     EfaAddress peer_addr;
     exchangeAddress(self_addr, peer_addr, "", port, true);
     
-    fi_addr_t client_addr = channel.addPeerAddress(peer_addr);
+    channel.addPeerAddress(peer_addr);
     
     uint64_t remote_addr, remote_key;
     exchangeBufferInfo(channel.getBufferAddr(), channel.getBufferKey(), remote_addr, remote_key, "", port, true);
