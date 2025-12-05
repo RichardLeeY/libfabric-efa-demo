@@ -11,7 +11,7 @@ export LD_LIBRARY_PATH := $(PWD)/build/libfabric/lib:$(LD_LIBRARY_PATH)
 all: $(BINARIES)
 
 clean:
-        rm -rf $(BINARIES)
+	rm -rf $(BINARIES)
 
 build/%: src/%.cpp build/libfabric/lib/libfabric.so
-        $(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS) $(LDLIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS) $(LDLIBS)
