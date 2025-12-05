@@ -241,10 +241,14 @@ public:
             auto ret = fi_cq_read(cq_.get(), &cqe, 1);
             if (ret == 1) return;
             if (ret == -FI_EAGAIN) continue;
-            if (ret < 0) {
+            if (ret == -FI_EAVAIL) {
                 struct fi_cq_err_entry err;
                 fi_cq_readerr(cq_.get(), &err, 0);
-                std::cout << "fi_cq_read error: " << fi_strerror(err.err) << std::endl;
+                std::cout << "RDMA operation failed: " << fi_cq_strerror(cq_.get(), err.prov_errno, err.err_data, nullptr, 0) << std::endl;
+                return;
+            }
+            if (ret < 0) {
+                std::cout << "fi_cq_read error: " << fi_strerror(-ret) << std::endl;
                 return;
             }
         }
