@@ -237,10 +237,16 @@ public:
     
     void pollCompletion() {
         struct fi_cq_data_entry cqe;
-        auto ret = fi_cq_read(cq_.get(), &cqe, 1);
-        if (ret == -FI_EAGAIN) return;
-        if (ret < 0) {
-            std::cout << "fi_cq_read error: " << fi_strerror(-ret) << std::endl;
+        while (true) {
+            auto ret = fi_cq_read(cq_.get(), &cqe, 1);
+            if (ret == 1) return;
+            if (ret == -FI_EAGAIN) continue;
+            if (ret < 0) {
+                struct fi_cq_err_entry err;
+                fi_cq_readerr(cq_.get(), &err, 0);
+                std::cout << "fi_cq_read error: " << fi_strerror(err.err) << std::endl;
+                return;
+            }
         }
     }
 };
