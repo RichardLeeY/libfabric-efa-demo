@@ -1,0 +1,21 @@
+{
+  "enabled": true,
+  "name": "Libfabric Resource Leak Scanner",
+  "description": "Scans C/C++ source files for common libfabric mistakes including unclosed endpoints, unfreed memory regions, and missing fi_close calls when files are saved",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "src/*.cpp",
+      "src/*.c",
+      "src/*.h",
+      "*.cpp",
+      "*.c",
+      "*.h"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Analyze the modified file for common libfabric programming mistakes:\n\n1. Check for unclosed endpoints (fi_endpoint calls without corresponding fi_close)\n2. Check for unfreed memory regions (fi_mr_reg calls without corresponding fi_close)\n3. Check for missing fi_close calls on any libfabric resources (fabric, domain, endpoint, completion queue, etc.)\n4. Verify proper cleanup in error paths\n5. Look for resource leaks in exception scenarios\n\nReport any issues found with specific line references and suggest fixes."
+  }
+}

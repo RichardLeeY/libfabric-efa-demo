@@ -271,7 +271,7 @@ public:
         struct fid_mr *mr;
         struct fi_mr_attr mr_attr = {
             .iov_count = 1,
-            .access = FI_REMOTE_WRITE | FI_REMOTE_READ | FI_WRITE | FI_READ,
+            .access = FI_SEND | FI_RECV | FI_REMOTE_WRITE | FI_REMOTE_READ | FI_WRITE | FI_READ,
         };
         
         struct iovec iov = {.iov_base = data, .iov_len = size};
@@ -383,8 +383,21 @@ private:
         struct fi_info *hints, *info;
         hints = fi_allocinfo();
         hints->ep_attr->type = FI_EP_RDM;
-        hints->fabric_attr->prov_name = strdup("efa");
+        
+        // For EFA-DIRECT: use "efa-direct" fabric instead of "efa"
+        hints->fabric_attr->prov_name = strdup("efa-direct");
+        
+        // EFA-DIRECT requirements:
+        // 1. FI_CONTEXT2 in mode
+        hints->mode = FI_CONTEXT2;
+        
+        // 2. FI_MR_LOCAL in mr_mode
+        hints->domain_attr->mr_mode = FI_MR_LOCAL | FI_MR_VIRT_ADDR | 
+                                      FI_MR_ALLOCATED | FI_MR_PROV_KEY;
         hints->domain_attr->threading = FI_THREAD_SAFE;
+        
+        // EFA-DIRECT doesn't provide FI_ORDER_SAS by default
+        // If you need ordering, you'll need to handle it at application level
 
         if (auto ret = fi_getinfo(FI_VERSION(2, 0), nullptr, nullptr, 0, hints, &info); ret != 0)
         {
@@ -815,7 +828,22 @@ struct ReturnMessage {
 int serverMain(int argc, char *argv[]) {
     if (argc != 2) {
         std::cout << "Server mode usage: rdma_pingpong <communication port>" << std::endl;
-        return -1;
+        return -1;struct fi_info *hints, *info;
+        hints = fi_allocinfo();
+        hints->ep_attr->type = FI_EP_RDM;
+        hints->fabric_attr->prov_name = strdup("efa");
+        hints->domain_attr->threading = FI_THREAD_SAFE;
+
+        if (auto ret = fi_getinfo(FI_VERSION(2, 0), nullptr, nullptr, 0, hints, &info); ret != 0)
+        {
+            std::cout << "fi_getinfo failed: " << fi_strerror(-ret) << std::endl;
+            fi_freeinfo(hints);
+            return false;
+        }
+
+        info_.reset(info);
+        fi_freeinfo(hints);
+        return true;
     }
 
     auto port = std::stoi(argv[1]);
@@ -943,31 +971,7 @@ int serverMain(int argc, char *argv[]) {
             first_recv_timer->checkpoint("Message parsing");
         }
         
-        // Debug: Print first 5 server messages in table format
-        if (count < 5) {
-            if (count == 0) {
-                std::cout << "\n--- Server: First 5 Messages Received ---" << std::endl;
-                std::cout << std::setw(5) << "Msg#" 
-                         << std::setw(15) << "Client Queue (μs)" 
-                         << std::setw(15) << "Client Send (μs)" 
-                         << std::setw(15) << "Server Recv (μs)" 
-                         << std::setw(15) << "Client->Server (μs)" << std::endl;
-                std::cout << std::string(65, '-') << std::endl;
-            }
-            
-            uint64_t client_to_server_latency = receiveTs - sendTs;
-            
-            std::cout << std::fixed << std::setprecision(3);
-            std::cout << std::setw(5) << (count + 1)
-                     << std::setw(15) << ns_to_us(queueTs)
-                     << std::setw(15) << ns_to_us(sendTs) 
-                     << std::setw(15) << ns_to_us(receiveTs)
-                     << std::setw(15) << ns_to_us(client_to_server_latency) << std::endl;
-                     
-            if (count == 4) {
-                std::cout << std::string(65, '-') << std::endl;
-            }
-        }
+        // Debug: Log message receive with timing (removed for latency measurement)
         
         if (++count < kTotalMessageCount)
         {
@@ -1063,38 +1067,11 @@ int clientMain(int argc, char *argv[]) {
             first_recv_timer->checkpoint("Message parsing");
         }
         
+        // Debug: Calculate and log timing details (removed for latency measurement)
+
         // Store results
         MessageData msg{queueTs, sendTs, receiveTs};
         message_stats.push_back(msg);
-        
-        // Debug: Print first 5 messages in table format
-        if (message_stats.size() <= 5) {
-            if (message_stats.size() == 1) {
-                std::cout << "\n--- First 5 Messages Debug Table ---" << std::endl;
-                std::cout << std::setw(5) << "Msg#" 
-                         << std::setw(15) << "Queue (μs)" 
-                         << std::setw(15) << "Send (μs)" 
-                         << std::setw(15) << "Receive (μs)" 
-                         << std::setw(15) << "Internal (μs)" 
-                         << std::setw(15) << "RTT (μs)" << std::endl;
-                std::cout << std::string(80, '-') << std::endl;
-            }
-            
-            uint64_t internal_delay = sendTs - queueTs;
-            uint64_t rtt = receiveTs - sendTs;
-            
-            std::cout << std::fixed << std::setprecision(3);
-            std::cout << std::setw(5) << message_stats.size()
-                     << std::setw(15) << ns_to_us(queueTs)
-                     << std::setw(15) << ns_to_us(sendTs) 
-                     << std::setw(15) << ns_to_us(receiveTs)
-                     << std::setw(15) << ns_to_us(internal_delay)
-                     << std::setw(15) << ns_to_us(rtt) << std::endl;
-                     
-            if (message_stats.size() == 5) {
-                std::cout << std::string(80, '-') << std::endl;
-            }
-        }
         
         if (message_stats.size() < kTotalMessageCount)
         {

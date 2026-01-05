@@ -31,7 +31,7 @@ struct Message {
 };
 
 constexpr size_t kMessageSize = 64;
-constexpr size_t kTotalMessageCount = 10000;
+constexpr size_t kTotalMessageCount = 10;
 constexpr size_t kBufferPoolCapacity = 100;
 constexpr size_t kBufferPoolSlots = 10;
 constexpr size_t kTotalBufferPoolSize = kBufferPoolSlots * kMessageSize;
@@ -239,7 +239,19 @@ public:
         std::cout << "domain: " << info_->domain_attr->name << std::endl;
         std::cout << "nic: " << info_->nic->device_attr->name << std::endl;
         std::cout << "fabric: " << info_->fabric_attr->prov_name << std::endl;
+        std::cout << "fabric_name: " << (info_->fabric_attr->name ? info_->fabric_attr->name : "NULL") << std::endl;
         std::cout << "link: " << (info_->nic->link_attr->speed / 1e9) << "Gbps" << std::endl;
+        std::cout << "mode: 0x" << std::hex << info_->mode << std::dec << std::endl;
+        std::cout << "mr_mode: 0x" << std::hex << info_->domain_attr->mr_mode << std::dec << std::endl;
+        
+        // Check if we're using EFA-direct
+        bool is_efa_direct = (info_->fabric_attr->name && 
+                             std::string(info_->fabric_attr->name) == "efa-direct");
+        std::cout << "EFA-DIRECT MODE: " << (is_efa_direct ? "YES" : "NO") << std::endl;
+        
+        if (is_efa_direct) {
+            std::cout << "Max message size for MSG ops: ~8KiB (current: " << kMessageSize << " bytes)" << std::endl;
+        }
         std::cout << "--------------------------------" << std::endl;
     }
 
@@ -380,35 +392,120 @@ public:
 	
 private:
     bool initInfo() {
+        std::cout << "[DEBUG] Starting EFA-direct provider initialization..." << std::endl;
+        
+        // First, check what providers are available
+        struct fi_info *all_providers = nullptr;
+        std::cout << "[DEBUG] Querying all available providers..." << std::endl;
+        if (auto ret = fi_getinfo(FI_VERSION(2, 0), nullptr, nullptr, 0, nullptr, &all_providers); ret == 0) {
+            std::cout << "[DEBUG] Available providers:" << std::endl;
+            bool efa_found = false, efa_direct_found = false;
+            for (struct fi_info *cur = all_providers; cur; cur = cur->next) {
+                std::string prov_name = cur->fabric_attr->prov_name ? cur->fabric_attr->prov_name : "NULL";
+                std::cout << "[DEBUG]   - Provider: " << prov_name << std::endl;
+                std::cout << "[DEBUG]     Domain: " << (cur->domain_attr->name ? cur->domain_attr->name : "NULL") << std::endl;
+                std::cout << "[DEBUG]     EP Type: " << cur->ep_attr->type << " (FI_EP_RDM=" << FI_EP_RDM << ")" << std::endl;
+                std::cout << "[DEBUG]     Mode: 0x" << std::hex << cur->mode << std::dec << std::endl;
+                std::cout << "[DEBUG]     MR Mode: 0x" << std::hex << cur->domain_attr->mr_mode << std::dec << std::endl;
+                
+                if (prov_name == "efa") efa_found = true;
+                if (prov_name == "efa-direct") efa_direct_found = true;
+            }
+            fi_freeinfo(all_providers);
+            
+            std::cout << "[DEBUG] EFA provider found: " << (efa_found ? "YES" : "NO") << std::endl;
+            std::cout << "[DEBUG] EFA-direct provider found: " << (efa_direct_found ? "YES" : "NO") << std::endl;
+            
+            if (!efa_direct_found && !efa_found) {
+                std::cout << "[ERROR] Neither EFA nor EFA-direct providers are available!" << std::endl;
+                std::cout << "[DEBUG] This usually means:" << std::endl;
+                std::cout << "[DEBUG]   1. EFA driver is not installed" << std::endl;
+                std::cout << "[DEBUG]   2. Not running on an EFA-enabled instance" << std::endl;
+                std::cout << "[DEBUG]   3. libfabric was not compiled with EFA support" << std::endl;
+                return false;
+            }
+        } else {
+            std::cout << "[DEBUG] Failed to query providers: " << fi_strerror(-ret) << std::endl;
+        }
+        
         struct fi_info *hints, *info;
         hints = fi_allocinfo();
+        std::cout << "[DEBUG] Allocated hints structure" << std::endl;
+        
         hints->ep_attr->type = FI_EP_RDM;
+        std::cout << "[DEBUG] Set endpoint type to FI_EP_RDM" << std::endl;
         
-        // For EFA-DIRECT: use "efa-direct" fabric instead of "efa"
-        hints->fabric_attr->prov_name = strdup("efa-direct");
+        // Try EFA provider with efa-direct fabric first, then fallback to regular efa fabric
+        std::vector<std::pair<std::string, std::string>> configs_to_try = {
+            {"efa", "efa-direct"},  // EFA provider with efa-direct fabric
+            {"efa", "efa"}          // EFA provider with regular efa fabric
+        };
         
-        // EFA-DIRECT requirements:
-        // 1. FI_CONTEXT2 in mode
-        hints->mode = FI_CONTEXT2;
-        
-        // 2. FI_MR_LOCAL in mr_mode
-        hints->domain_attr->mr_mode = FI_MR_LOCAL | FI_MR_VIRT_ADDR | 
-                                      FI_MR_ALLOCATED | FI_MR_PROV_KEY;
-        hints->domain_attr->threading = FI_THREAD_SAFE;
-        
-        // EFA-DIRECT doesn't provide FI_ORDER_SAS by default
-        // If you need ordering, you'll need to handle it at application level
-
-        if (auto ret = fi_getinfo(FI_VERSION(2, 0), nullptr, nullptr, 0, hints, &info); ret != 0)
-        {
-            std::cout << "fi_getinfo failed: " << fi_strerror(-ret) << std::endl;
-            fi_freeinfo(hints);
-            return false;
+        for (const auto& [provider_name, fabric_name] : configs_to_try) {
+            std::cout << "[DEBUG] Attempting to use provider: " << provider_name << " with fabric: " << fabric_name << std::endl;
+            
+            if (hints->fabric_attr->prov_name) {
+                free(hints->fabric_attr->prov_name);
+            }
+            hints->fabric_attr->prov_name = strdup(provider_name.c_str());
+            
+            if (hints->fabric_attr->name) {
+                free(hints->fabric_attr->name);
+            }
+            hints->fabric_attr->name = strdup(fabric_name.c_str());
+            
+            // EFA-DIRECT/EFA requirements
+            hints->mode = FI_CONTEXT2;
+            hints->domain_attr->mr_mode = FI_MR_LOCAL | FI_MR_VIRT_ADDR | 
+                                          FI_MR_ALLOCATED | FI_MR_PROV_KEY;
+            hints->domain_attr->threading = FI_THREAD_SAFE;
+            
+            std::cout << "[DEBUG] Set hints:" << std::endl;
+            std::cout << "[DEBUG]   Provider: " << provider_name << std::endl;
+            std::cout << "[DEBUG]   Fabric: " << fabric_name << std::endl;
+            std::cout << "[DEBUG]   EP Type: " << hints->ep_attr->type << std::endl;
+            std::cout << "[DEBUG]   Mode: 0x" << std::hex << hints->mode << std::dec << std::endl;
+            std::cout << "[DEBUG]   MR Mode: 0x" << std::hex << hints->domain_attr->mr_mode << std::dec << std::endl;
+            std::cout << "[DEBUG]   Threading: " << hints->domain_attr->threading << std::endl;
+            
+            std::cout << "[DEBUG] Calling fi_getinfo..." << std::endl;
+            if (auto ret = fi_getinfo(FI_VERSION(2, 0), nullptr, nullptr, 0, hints, &info); ret == 0) {
+                std::cout << "[DEBUG] SUCCESS! fi_getinfo succeeded for provider: " << provider_name << " with fabric: " << fabric_name << std::endl;
+                std::cout << "[DEBUG] Selected provider details:" << std::endl;
+                std::cout << "[DEBUG]   Provider: " << info->fabric_attr->prov_name << std::endl;
+                std::cout << "[DEBUG]   Fabric Name: " << (info->fabric_attr->name ? info->fabric_attr->name : "NULL") << std::endl;
+                std::cout << "[DEBUG]   Domain: " << (info->domain_attr->name ? info->domain_attr->name : "NULL") << std::endl;
+                std::cout << "[DEBUG]   EP Type: " << info->ep_attr->type << std::endl;
+                std::cout << "[DEBUG]   Mode: 0x" << std::hex << info->mode << std::dec << std::endl;
+                std::cout << "[DEBUG]   MR Mode: 0x" << std::hex << info->domain_attr->mr_mode << std::dec << std::endl;
+                
+                info_.reset(info);
+                fi_freeinfo(hints);
+                return true;
+            } else {
+                std::cout << "[DEBUG] fi_getinfo FAILED for " << provider_name << " with fabric " << fabric_name << ": " << fi_strerror(-ret) << " (error code: " << ret << ")" << std::endl;
+                
+                // Try with relaxed hints for debugging
+                std::cout << "[DEBUG] Trying with minimal hints for " << provider_name << "..." << std::endl;
+                struct fi_info *minimal_hints = fi_allocinfo();
+                minimal_hints->fabric_attr->prov_name = strdup(provider_name.c_str());
+                
+                if (auto ret2 = fi_getinfo(FI_VERSION(2, 0), nullptr, nullptr, 0, minimal_hints, &info); ret2 == 0) {
+                    std::cout << "[DEBUG] Minimal hints worked! Provider capabilities:" << std::endl;
+                    std::cout << "[DEBUG]   Supported EP types: " << info->ep_attr->type << std::endl;
+                    std::cout << "[DEBUG]   Default mode: 0x" << std::hex << info->mode << std::dec << std::endl;
+                    std::cout << "[DEBUG]   Default MR mode: 0x" << std::hex << info->domain_attr->mr_mode << std::dec << std::endl;
+                    fi_freeinfo(info);
+                } else {
+                    std::cout << "[DEBUG] Even minimal hints failed: " << fi_strerror(-ret2) << std::endl;
+                }
+                fi_freeinfo(minimal_hints);
+            }
         }
-
-        info_.reset(info);
+        
+        std::cout << "[ERROR] All EFA provider attempts failed!" << std::endl;
         fi_freeinfo(hints);
-        return true;
+        return false;
     }
     
     bool initNetwork() {
@@ -1037,6 +1134,8 @@ int clientMain(int argc, char *argv[]) {
     message_stats.reserve(kTotalMessageCount);
     bool first_receive = true;
     channel.registerRecvCallback([&](void* data){
+        std::cout << "[DEBUG] Client received message! Callback triggered." << std::endl;
+        
         std::unique_ptr<DebugTimer> first_recv_timer;
         if (first_receive) {
             first_recv_timer = std::make_unique<DebugTimer>("First Client Receive Operation");
@@ -1048,6 +1147,8 @@ int clientMain(int argc, char *argv[]) {
         std::memcpy(&queueTs, data, sizeof(queueTs));
         std::memcpy(&sendTs, static_cast<uint8_t*>(data) + sizeof(queueTs), sizeof(sendTs));
         
+        std::cout << "[DEBUG] Client parsed message - queueTs: " << queueTs << ", sendTs: " << sendTs << std::endl;
+        
         if (first_receive) {
             first_recv_timer->checkpoint("Message parsing");
         }
@@ -1058,11 +1159,14 @@ int clientMain(int argc, char *argv[]) {
         MessageData msg{queueTs, sendTs, receiveTs};
         message_stats.push_back(msg);
         
+        std::cout << "[DEBUG] Client stored message " << message_stats.size() << " of " << kTotalMessageCount << std::endl;
+        
         if (message_stats.size() < kTotalMessageCount)
         {
             channel.postReceive(recvBufferPool.data(), static_cast<void*>(data));
         }
         else {
+            std::cout << "[DEBUG] Client received all messages, setting done flag" << std::endl;
             done.store(true, std::memory_order_release);
         }
         
@@ -1073,9 +1177,15 @@ int clientMain(int argc, char *argv[]) {
     });
     
     std::thread recvThread([&done, &channel]() {
+        std::cout << "[DEBUG] Client receive thread started" << std::endl;
+        uint32_t poll_count = 0;
         while (!done.load(std::memory_order_acquire)) {
             channel.pollReceive();
+            if (++poll_count % 1000000 == 0) {
+                std::cout << "[DEBUG] Client polled receive " << poll_count << " times, still waiting..." << std::endl;
+            }
         }
+        std::cout << "[DEBUG] Client receive thread exiting" << std::endl;
     });
 	
 	// Start send completion thread
